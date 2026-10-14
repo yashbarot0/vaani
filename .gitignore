@@ -1,0 +1,8 @@
+# Built or downloaded per machine by setup.sh
+vendor/
+models/
+bin/whisper-*
+bin/llama-*
+logs/
+__pycache__/
+*.pyc
