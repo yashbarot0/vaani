@@ -87,3 +87,14 @@ def plausible_cleanup(raw, cleaned):
     """Reject LLM output that answers or expands the dictation instead of cleaning it."""
     n, m = len(raw.split()), len(cleaned.split())
     return m > 0 and 0.4 * n <= m <= 1.2 * n + 4
+
+
+def speakable(reply):
+    """Bob's reply as plain sentences for text-to-speech: no code, markdown or URLs read aloud."""
+    s = re.sub(r"```.*?(```|$)", " (code shown on screen) ", reply, flags=re.S)
+    s = re.sub(r"`([^`]*)`", r"\1", s)
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)              # [text](url) -> text
+    s = re.sub(r"https?://\S+", "a link", s)
+    s = re.sub(r"^\s{0,3}(#{1,6}|[-*+]|\d+[.)])\s+", "", s, flags=re.M)  # headings, bullets, numbering
+    s = re.sub(r"[*_~|>#]+", "", s)
+    return _squash(s)

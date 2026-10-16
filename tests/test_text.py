@@ -1,4 +1,4 @@
-from vaani.text import (apply_rules, clean_whisper, plausible_cleanup, should_polish, unwrap,
+from vaani.text import (apply_rules, clean_whisper, plausible_cleanup, should_polish, unwrap, speakable,
                           whisper_prompt, clean_messages)
 
 
@@ -38,6 +38,13 @@ def test_prompts():
     assert whisper_prompt([]) == "" and "CUDA" in whisper_prompt(["CUDA", "Fedora"])
     msgs = clean_messages("hi")
     assert msgs[0]["role"] == "system" and msgs[-1]["content"] == "<raw_dictation>hi</raw_dictation>"
+
+
+def test_speakable():
+    md = "## Steps\n- Run `git rebase -i`\n- See [docs](https://git-scm.com)\n```sh\ngit log\n```\n**Done**"
+    out = speakable(md)
+    assert out == "Steps Run git rebase -i See docs (code shown on screen) Done", out
+    assert speakable("Visit https://ibm.com now.") == "Visit a link now."
 
 
 if __name__ == "__main__":

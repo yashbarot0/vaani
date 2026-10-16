@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-time setup for Vaani. Steps that use the network: sources, models, bench-models.
-# Usage: ./setup.sh check | sources | build | models | bench-models | desktop | uinput (needs sudo) | all
+# Usage: ./setup.sh check | sources | build | models | bench-models | desktop | bob | uinput (needs sudo) | all
+# Optional: ./setup.sh bob adds Super+Alt+B (ask IBM Bob), the only feature that goes online.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 CUDA_ARCH=89   # RTX 1000 Ada
@@ -71,6 +72,25 @@ bench-models() {  # optional: the other candidates compared by scripts/bench_*.p
   fetch $HF/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf Llama-3.2-3B-Instruct-Q4_K_M.gguf
 }
 
+shortcut() {  # slug name vaani-subcommand binding: a GNOME custom shortcut, appended to existing ones
+  /usr/bin/python3 - "$ROOT" "$@" <<'PY'
+import ast, subprocess, sys
+root, slug, name, cmd, key = sys.argv[1:]
+base = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/"
+schema = "org.gnome.settings-daemon.plugins.media-keys"
+def gs(*a): return subprocess.run(["gsettings", *a], check=True, capture_output=True, text=True).stdout.strip()
+paths = ast.literal_eval(gs("get", schema, "custom-keybindings").removeprefix("@as ")) or []
+path = base + slug + "/"
+rel = f"{schema}.custom-keybinding:{path}"
+gs("set", rel, "name", name)
+gs("set", rel, "command", f"{root}/bin/vaani {cmd}")
+gs("set", rel, "binding", key)
+if path not in paths:
+    gs("set", schema, "custom-keybindings", str(paths + [path]))
+print(f"shortcut: {key} runs vaani {cmd}")
+PY
+}
+
 desktop() {
   # Autostart at login, with no network access (only loopback, shared with the GPU servers).
   mkdir -p ~/.config/systemd/user
@@ -93,30 +113,45 @@ EOF
   systemctl --user daemon-reload
   systemctl --user enable vaani.service
 
-  # GNOME custom shortcuts, appended to any existing ones.
-  /usr/bin/python3 - "$ROOT" <<'EOF'
-import ast, subprocess, sys
-root = sys.argv[1]
-base = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/"
-schema = "org.gnome.settings-daemon.plugins.media-keys"
-def gs(*a): return subprocess.run(["gsettings", *a], check=True, capture_output=True, text=True).stdout.strip()
-cur = gs("get", schema, "custom-keybindings")
-paths = ast.literal_eval(cur.removeprefix("@as ")) or []
-for slug, name, cmd, key in [("vaani-toggle", "Vaani dictation", "toggle", "<Super><Alt>d"),
-                             ("vaani-command", "Vaani command mode", "command", "<Super><Alt>e")]:
-    path = base + slug + "/"
-    if path not in paths:
-        paths.append(path)
-    rel = f"{schema}.custom-keybinding:{path}"
-    gs("set", rel, "name", name)
-    gs("set", rel, "command", f"{root}/bin/vaani {cmd}")
-    gs("set", rel, "binding", key)
-gs("set", schema, "custom-keybindings", str(paths))
-print("shortcuts: Super+Alt+D dictation, Super+Alt+E command mode")
-EOF
+  shortcut vaani-toggle "Vaani dictation" toggle "<Super><Alt>d"
+  shortcut vaani-command "Vaani command mode" command "<Super><Alt>e"
 
   # Clipboard Indicator keeps history on disk; keep only favourites there (dictations pass through the clipboard).
   dconf write /org/gnome/shell/extensions/clipboard-indicator/cache-only-favorites true || true
+}
+
+bob_setup() {
+  # Optional: Super+Alt+B asks IBM Bob Shell. vaani-bob.service is the only part of Vaani with
+  # network access; vaani.service stays offline and reaches it through a local socket.
+  local envfile=~/.config/vaani/bob.env
+  PATH="$HOME/.local/bin:$PATH" command -v bob >/dev/null || { echo "Bob Shell not found: install it first"; exit 1; }
+  PATH="$HOME/.local/bin:$PATH" bob run --help 2>/dev/null | grep -q -- "--max-cost" ||
+    { echo "Bob Shell 2.x is required (bob run --mode ask -f json)"; exit 1; }
+  if ! grep -q '^BOB_API_KEY=.' "$envfile" 2>/dev/null; then
+    echo "Create $envfile containing the line BOB_API_KEY=<your key>, then run: ./setup.sh bob"
+    exit 1
+  fi
+  chmod 600 "$envfile"
+  mkdir -p ~/.local/share/vaani/bob ~/.config/systemd/user
+  cat > ~/.config/systemd/user/vaani-bob.service <<EOF
+[Unit]
+Description=Vaani Bob helper: sends Super+Alt+B questions to IBM Bob Shell
+
+[Service]
+EnvironmentFile=$envfile
+Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$ROOT/bin/vaani bob-helper
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload
+  systemctl --user enable vaani-bob.service
+  systemctl --user restart vaani-bob.service
+  shortcut vaani-bob "Vaani ask Bob" bob "<Super><Alt>b"
 }
 
 uinput() {
@@ -131,6 +166,7 @@ uinput() {
 
 case "${1:-all}" in
   check|sources|build|models|bench-models|desktop|uinput) "$1" ;;
+  bob) bob_setup ;;
   all) check; build; models; desktop ;;
-  *) echo "usage: $0 check|sources|build|models|bench-models|desktop|uinput|all"; exit 1 ;;
+  *) echo "usage: $0 check|sources|build|models|bench-models|desktop|bob|uinput|all"; exit 1 ;;
 esac

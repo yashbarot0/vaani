@@ -33,6 +33,31 @@ To throw away a recording, **right-click the pill** while it's red or busy, or c
 
 If nothing is selected, the instruction writes new text, for example "write a polite reply declining the meeting".
 
+## Asking Bob a question
+
+Bob's face sits in the bottom-right corner of the screen. Clicking it, or pressing **Super+Alt+B**, sends a spoken question to IBM Bob. Bob reads the answer aloud and shows it in a card. It's useful for quick questions like "what does git rebase do" or "how do I list open ports on Linux".
+
+1. Click Bob, or press **Super+Alt+B**. A blue ring around Bob pulses with your voice, and a card above him shows your words as you speak.
+2. Ask your question.
+3. Click Bob, or press **Super+Alt+B**, again. A spinner circles Bob while he thinks, usually about 4 seconds.
+4. Bob reads the answer aloud and his mouth moves as he speaks. The card shows the answer.
+
+In the card and on Bob:
+
+- **Click the card** to copy the answer.
+- **Right-click Bob or the card** to cancel a question, stop Bob talking, or close the card.
+- The card closes by itself a few seconds after Bob finishes speaking.
+
+Good to know:
+
+- **Nothing is pasted.** Your cursor and document are untouched.
+- **Follow-ups work all day.** Every question that day continues the same conversation, so "and which one is faster?" makes sense. Bob's own task list gets one "Vaani voice session" entry per day. To start fresh, choose **New Bob conversation** in the tray menu.
+- **This is the only feature that goes online.** The text of your question is sent to IBM. Your voice recording never leaves the laptop. Dictation and command mode stay fully offline.
+- **Bob can only answer.** It runs in read-only mode and cannot change files or run commands.
+- **It costs a little money.** Each question costs about 2 to 3 US cents. There is no spending limit.
+- **Quiet mode:** turn off **Speak Bob's answers** in the tray menu to only show the card. **Show Bob button** hides Bob from the corner. Super+Alt+B still works.
+- Starting a dictation or a new question stops Bob talking, so his voice never ends up in your recording.
+
 ## Flow and Raw modes
 
 - **Flow**, the default, cleans your speech with a local AI. It removes "um" and "uh", fixes punctuation, applies corrections like "at ten, no wait, eleven", and turns spoken lists into real lists.
@@ -53,9 +78,12 @@ To switch, right-click the pill while it's idle, or use **Flow mode** in the tra
 Click the microphone icon in the top panel:
 
 - **Start or Stop dictation**
+- **Ask Bob**
+- **Show Bob button** and **Speak Bob's answers**
 - **Cancel**
 - **Flow mode (AI cleanup)**, on or off
 - **Show pill when idle.** Turn this off to hide the pill until you start dictating.
+- **New Bob conversation**, which makes Bob forget the previous questions
 - **Copy raw**, which copies the last thing you said exactly as Whisper heard it, before cleanup
 - **Quit**
 
@@ -125,6 +153,15 @@ cd ~/projects/vaani && ./setup.sh build && systemctl --user restart vaani
 ```
 
 NVIDIA driver updates on their own don't need a rebuild.
+
+**The card says "Bob helper not running".**
+The online helper is stopped. Run `systemctl --user restart vaani-bob`, and check `journalctl --user -u vaani-bob -n 20` if it stops again.
+
+**The card says "Bob key expired or invalid".**
+Bob API keys expire. Put the new key in `~/.config/vaani/bob.env` as `BOB_API_KEY=...`, then run `systemctl --user restart vaani-bob`.
+
+**The card says "Can't reach IBM Bob".**
+The laptop is offline or IBM's service is down. Dictation still works.
 
 ## Things to avoid
 

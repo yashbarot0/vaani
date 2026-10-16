@@ -8,9 +8,9 @@ import threading
 import time
 import traceback
 import requests
-from .ui import Pill, Tray  # first: it pins GTK 3 before anything imports gi.repository
+from .ui import BobButton, Card, Pill, Tray  # first: it pins GTK 3 before anything imports gi.repository
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
-from . import audio, config, engines, text  # noqa: E402
+from . import audio, config, engines, speech, text  # noqa: E402
 from .keyboard import Keyboard  # noqa: E402
 
 
@@ -40,6 +40,12 @@ class Daemon:
         self.pill = Pill(self.toggle, self.right_click, lambda: list(self.rec.levels), self.mode)
         self.pill.show_idle = self.cfg["show_idle_pill"]
         self.tray = Tray(self)
+        self.speaker = speech.Speaker(self.cfg["bob_voice"], self.cfg["bob_speech_rate"])
+        self.bob_btn = BobButton(lambda: self.toggle("bob"), self.bob_right_click,
+                                 lambda: list(self.rec.levels), lambda: self.speaker.level)
+        self.bob_btn.visible_wanted = self.cfg["show_bob_button"]
+        self.bob_btn.set_state("idle")
+        self.card = Card(lambda reply: self.clip.set_text(reply, -1), self.bob_right_click)
         self._listen()
         self._start_engines()
         GLib.timeout_add(100, self._watchdog)
@@ -47,12 +53,29 @@ class Daemon:
     # ---- state -------------------------------------------------------------------------
     def set_state(self, state, label=""):
         self.state = state
-        self.pill.set_state(state, label)
+        bob = self.kind == "bob" and state != "loading"  # Bob jobs show on the Bob button and card, not the pill
+        self.pill.set_state("idle" if bob else state, "" if bob else label)
+        if bob:
+            self._bob_view(state, label)
         self.tray.set_state(state)
         if state in ("done", "error"):
             job = self.job
             GLib.timeout_add(400 if state == "done" else 3000,
                              lambda: self.job == job and self.state == state and self.set_state("idle") and False)
+
+    def _bob_view(self, state, label):
+        if state == "recording":
+            self.bob_btn.set_state("recording")
+            self.card.show("Listening…", "Click Bob to stop  ·  Right-click to cancel", "question")
+        elif state == "busy":
+            self.bob_btn.set_state("busy")
+            self.card.thinking_footer(label)  # the card keeps showing your question
+        elif state == "error":
+            self.bob_btn.set_state("error")
+            self.card.show(label, "Right-click to close", "error")
+            self.card.close_later(6)
+        elif state == "idle" and not self.speaker.speaking:
+            self.bob_btn.set_state("idle")
 
     def _ui(self, fn, *args):
         GLib.idle_add(lambda: fn(*args) and False)
@@ -114,9 +137,45 @@ class Daemon:
     def cancel(self):
         if self.state == "recording":
             self.rec.stop()
+        if self.state == "busy" and self.kind == "bob":
+            self._bob_async({"op": "cancel"})  # also stop the Bob call, not just ignore its answer
         if self.state in ("recording", "busy"):
             self.job += 1
             self.set_state("idle")
+        if self.kind == "bob":
+            self.speaker.stop()
+            self.card.close()
+
+    def bob_right_click(self):
+        """Right-click on the Bob button or card: cancel, stop talking, or close the card."""
+        if self.kind == "bob" and self.state in ("recording", "busy"):
+            self.cancel()
+        else:
+            self.speaker.stop()
+            self.card.close()
+
+    def bob_reset(self):
+        self._bob_async({"op": "reset"})
+        if self.state == "idle":
+            self.card.show("Bob will start a new conversation with your next question.", "", "question")
+            self.card.close_later(4)
+
+    def set_show_bob(self, on):
+        self.bob_btn.visible_wanted = on
+        self.bob_btn.set_state(self.bob_btn.state)
+
+    def set_bob_speak(self, on):
+        self.cfg["bob_speak"] = on
+        if not on:
+            self.speaker.stop()
+
+    def _bob_async(self, req):
+        def send():
+            try:
+                engines.bob_request(req, 5)
+            except (OSError, ValueError):
+                pass  # helper not running: nothing to cancel or reset
+        threading.Thread(target=send, daemon=True).start()
 
     def set_mode(self, mode):
         self.mode = self.pill.mode = mode
@@ -144,8 +203,11 @@ class Daemon:
             notify(f"Cannot open the microphone: {e}")
             return
         self.job += 1
+        self.speaker.stop()  # never record Bob's own voice
         if self.cfg["sounds"]:
             audio.play("device-added")
+        if kind != "bob":
+            self.card.close()
         self.set_state("recording")
         if self.cfg["live_preview"]:
             threading.Thread(target=self._preview_loop, args=(self.job,), daemon=True).start()
@@ -190,6 +252,8 @@ class Daemon:
             raw = text.clean_whisper(raw, speech)
             if not raw:
                 return self._ui(self._fail, job, "No speech heard")
+            if kind == "bob":
+                return self._ask_bob(job, text.apply_rules(raw, cfg["replacements"], cfg["remove_fillers"]))
             if kind == "command":
                 if not self.llm_ready:
                     return self._ui(self._fail, job, "AI model still loading")
@@ -215,14 +279,58 @@ class Daemon:
             self._ui(self._fail, job, "Transcription failed")
             notify(f"Transcription failed: {str(e)[:200]}")
 
+    def _ask_bob(self, job, question):
+        """Send the question to vaani-bob.service, the only online part. Nothing is pasted."""
+        self._ui(self._busy_label, job, "Bob is thinking…")
+        try:
+            r = engines.bob_request({"op": "ask", "text": question}, self.cfg["bob_timeout"] + 15)
+        except (FileNotFoundError, ConnectionRefusedError):
+            r = {"ok": False, "error": "helper", "message": "Bob helper not running"}
+        except TimeoutError:
+            r = {"ok": False, "error": "timeout", "message": "Bob took too long"}
+        except (OSError, ValueError):
+            r = {"ok": False, "error": "helper", "message": "Bob helper failed"}
+        if r.get("ok"):
+            self._ui(self._show_answer, job, r["reply"])
+        elif r.get("error") != "cancelled" and job == self.job:
+            self._ui(self._fail, job, r.get("message") or "Bob couldn't answer")
+            hints = {"helper": "Start it with: systemctl --user start vaani-bob",
+                     "auth": "Put a new key in ~/.config/vaani/bob.env, then: systemctl --user restart vaani-bob"}
+            notify(f"Bob: {r.get('message')}. {hints.get(r.get('error'), '')}".strip())
+
     # ---- results (main thread) ---------------------------------------------------------
+    def _show_answer(self, job, reply):
+        if job != self.job:
+            return  # cancelled while Bob was thinking
+        self.set_state("idle")
+        if self.cfg["bob_speak"]:
+            self.card.show(reply, "Speaking…  ·  Click to copy  ·  Right-click to stop", "answer")
+            self.bob_btn.set_state("speaking")
+            self.speaker.say(text.speakable(reply), lambda: self._ui(self._speech_done, job))
+        else:
+            self.card.show(reply, "Click to copy  ·  Right-click to close", "answer")
+            self.card.close_later(8 + 0.3 * len(reply.split()))  # roughly reading time
+
+    def _speech_done(self, job):
+        if self.bob_btn.state == "speaking":
+            self.bob_btn.set_state("idle")
+        if job == self.job and self.card.kind == "answer" and self.card.get_visible():
+            self.card.set_footer("Click to copy  ·  Right-click to close")
+            self.card.close_later(10)
+
     def _set_caption(self, job, caption):
         if job == self.job and self.state == "recording":
-            self.pill.set_caption(caption)
+            if self.kind == "bob":
+                self.card.set_text(caption)
+            else:
+                self.pill.set_caption(caption)
 
     def _busy_label(self, job, label):
         if job == self.job and self.state == "busy":
-            self.pill.set_state("busy", label)
+            if self.kind == "bob":
+                self.card.thinking_footer(label)
+            else:
+                self.pill.set_state("busy", label)
 
     def _fail(self, job, msg):
         if job == self.job:
@@ -306,6 +414,10 @@ class Daemon:
         cmd = args[0] if args else ""
         if cmd in ("toggle", "command"):
             self.toggle("command" if cmd == "command" else "dictate")
+        elif cmd == "bob":
+            self.toggle("bob")
+        elif cmd == "bob-reset":
+            self.bob_reset()
         elif cmd == "cancel":
             self.cancel()
         elif cmd == "mode" and len(args) == 2 and args[1] in ("flow", "raw"):
@@ -317,6 +429,7 @@ class Daemon:
         return f"{self.state} mode={self.mode} llm={self.llm_status}"
 
     def shutdown(self):
+        self.speaker.stop()
         for s in (self.whisper, self.llm):
             if s:
                 s.stop()

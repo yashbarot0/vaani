@@ -6,3 +6,5 @@ bin/llama-*
 logs/
 __pycache__/
 *.pyc
+.bob/
+*.env

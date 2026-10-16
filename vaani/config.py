@@ -8,7 +8,9 @@ MODELS = ROOT / "models"
 BIN = ROOT / "bin"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
 SOCKET = RUNTIME / "vaani.sock"
+BOB_SOCKET = RUNTIME / "vaani-bob.sock"  # served by vaani-bob.service, outside the sandbox
 CONFIG_FILE = Path.home() / ".config/vaani/config.toml"
+BOB_ICON = Path.home() / ".config/vaani/bob.png"  # optional; IBM's mascot is not in the repo
 HISTORY_FILE = Path.home() / ".local/share/vaani/history.jsonl"
 
 DEFAULTS = {
@@ -32,6 +34,12 @@ DEFAULTS = {
     "sounds": True,
     "show_idle_pill": True,
     "history": False,
+    # Super+Alt+B or the Bob button asks IBM Bob. Only the question text leaves the laptop, via vaani-bob.service.
+    "bob_timeout": 120,          # seconds before the helper kills a Bob call
+    "bob_speak": True,           # read Bob's answer aloud
+    "bob_voice": "en-us",        # espeak-ng voice
+    "bob_speech_rate": 165,      # words per minute
+    "show_bob_button": True,     # Bob's face at the bottom-right corner; click to ask
 }
 
 

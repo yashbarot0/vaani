@@ -1,4 +1,4 @@
-"""vaani daemon | toggle | command | cancel | mode flow|raw | status | quit"""
+"""vaani daemon | toggle | command | bob | bob-reset | cancel | mode flow|raw | status | quit | bob-helper"""
 import os
 import socket
 import sys
@@ -22,7 +22,10 @@ def main():
         os.environ["GDK_BACKEND"] = "x11"  # X11 lets the pill be an unfocusable overlay on GNOME
         from .daemon import run
         run()
-    elif args and args[0] in ("toggle", "command", "cancel", "mode", "status", "quit"):
+    elif args == ["bob-helper"]:
+        from .bobhelper import main as helper_main  # the online part, run by vaani-bob.service
+        helper_main()
+    elif args and args[0] in ("toggle", "command", "bob", "bob-reset", "cancel", "mode", "status", "quit"):
         send(args)
     else:
         sys.exit(__doc__)

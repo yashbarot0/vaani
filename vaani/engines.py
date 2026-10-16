@@ -2,7 +2,9 @@
 import collections
 import ctypes
 import io
+import json
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -82,3 +84,15 @@ def chat(server, messages, max_tokens, timeout):
                       json={"messages": messages, "temperature": 0, "max_tokens": max_tokens})
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
+
+
+def bob_request(req, timeout):
+    """One JSON request to the Bob helper over its local socket. Raises OSError if it isn't running."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        s.connect(str(config.BOB_SOCKET))
+        s.sendall((json.dumps(req) + "\n").encode())
+        line = s.makefile().readline()
+    if not line:
+        raise ConnectionError("Bob helper closed the connection")
+    return json.loads(line)
