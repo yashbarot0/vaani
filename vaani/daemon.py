@@ -25,6 +25,7 @@ class Daemon:
         self.state, self.kind, self.selection = "loading", "dictate", ""
         self.job = 0  # bumped on every start/cancel so stale worker results are dropped
         self.last_raw = ""
+        self.answer = ""  # Bob's answer so far, while it streams in
         self.whisper = self.llm = None
         self.llm_ready = False
         self.llm_status = "loading"
@@ -40,7 +41,8 @@ class Daemon:
         self.pill = Pill(self.toggle, self.right_click, lambda: list(self.rec.levels), self.mode)
         self.pill.show_idle = self.cfg["show_idle_pill"]
         self.tray = Tray(self)
-        self.speaker = speech.Speaker(self.cfg["bob_voice"], self.cfg["bob_speech_rate"])
+        self.speaker = speech.Speaker(self.cfg)  # espeak-ng until Kokoro has loaded (a few seconds, off the GTK thread)
+        threading.Thread(target=self._load_voice, daemon=True).start()
         self.bob_btn = BobButton(lambda: self.toggle("bob"), self.bob_right_click,
                                  lambda: list(self.rec.levels), lambda: self.speaker.level)
         self.bob_btn.visible_wanted = self.cfg["show_bob_button"]
@@ -76,6 +78,10 @@ class Daemon:
             self.card.close_later(6)
         elif state == "idle" and not self.speaker.speaking:
             self.bob_btn.set_state("idle")
+
+    def _load_voice(self):
+        self.speaker.engine = speech.load_kokoro(self.cfg)
+        print(f"Bob's voice: {self.speaker.name}", flush=True)
 
     def _ui(self, fn, *args):
         GLib.idle_add(lambda: fn(*args) and False)
@@ -151,6 +157,9 @@ class Daemon:
         if self.kind == "bob" and self.state in ("recording", "busy"):
             self.cancel()
         else:
+            if self.kind == "bob":
+                self.job += 1  # drop the rest of an answer that is still streaming in
+                self._bob_async({"op": "cancel"})
             self.speaker.stop()
             self.card.close()
 
@@ -280,10 +289,20 @@ class Daemon:
             notify(f"Transcription failed: {str(e)[:200]}")
 
     def _ask_bob(self, job, question):
-        """Send the question to vaani-bob.service, the only online part. Nothing is pasted."""
+        """Send the question to vaani-bob.service, the only online part, and speak the answer as it
+        streams in: the card fills word by word and each finished phrase goes to the voice. Nothing is pasted."""
         self._ui(self._busy_label, job, "Bob is thinking…")
+        stream = speech.SentenceStream()  # used only on this worker thread
+        began = []
+
+        def on_delta(delta):
+            if not began:
+                began.append(True)
+                self._ui(self._answer_begin, job)
+            self._ui(self._answer_delta, job, delta, stream.push(delta))
+
         try:
-            r = engines.bob_request({"op": "ask", "text": question}, self.cfg["bob_timeout"] + 15)
+            r = engines.bob_ask(question, on_delta, self.cfg["bob_timeout"] + 15)
         except (FileNotFoundError, ConnectionRefusedError):
             r = {"ok": False, "error": "helper", "message": "Bob helper not running"}
         except TimeoutError:
@@ -291,7 +310,9 @@ class Daemon:
         except (OSError, ValueError):
             r = {"ok": False, "error": "helper", "message": "Bob helper failed"}
         if r.get("ok"):
-            self._ui(self._show_answer, job, r["reply"])
+            if not began:
+                self._ui(self._answer_begin, job)
+            self._ui(self._answer_end, job, r["reply"], stream.flush())
         elif r.get("error") != "cancelled" and job == self.job:
             self._ui(self._fail, job, r.get("message") or "Bob couldn't answer")
             hints = {"helper": "Start it with: systemctl --user start vaani-bob",
@@ -299,16 +320,36 @@ class Daemon:
             notify(f"Bob: {r.get('message')}. {hints.get(r.get('error'), '')}".strip())
 
     # ---- results (main thread) ---------------------------------------------------------
-    def _show_answer(self, job, reply):
+    def _answer_begin(self, job):
         if job != self.job:
             return  # cancelled while Bob was thinking
-        self.set_state("idle")
+        self.set_state("idle")  # the question is done; Bob is answering
+        self.answer = ""
+        self.card.show("", "Bob is answering…", "answer")
         if self.cfg["bob_speak"]:
-            self.card.show(reply, "Speaking…  ·  Click to copy  ·  Right-click to stop", "answer")
             self.bob_btn.set_state("speaking")
-            self.speaker.say(text.speakable(reply), lambda: self._ui(self._speech_done, job))
+            self.speaker.start(lambda: self._ui(self._speech_done, job))
+
+    def _answer_delta(self, job, delta, spoken):
+        if job != self.job:
+            return
+        self.answer += delta
+        self.card.set_text(self.answer.strip())
+        if self.cfg["bob_speak"]:
+            for piece in spoken:
+                self.speaker.feed(piece)
+
+    def _answer_end(self, job, reply, spoken):
+        if job != self.job:
+            return
+        self.card.set_text(reply)
+        if self.cfg["bob_speak"]:
+            for piece in spoken:
+                self.speaker.feed(piece)
+            self.speaker.finish()
+            self.card.set_footer("Speaking…  ·  Click to copy  ·  Right-click to stop")
         else:
-            self.card.show(reply, "Click to copy  ·  Right-click to close", "answer")
+            self.card.set_footer("Click to copy  ·  Right-click to close")
             self.card.close_later(8 + 0.3 * len(reply.split()))  # roughly reading time
 
     def _speech_done(self, job):

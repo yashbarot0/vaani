@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-time setup for Vaani. Steps that use the network: sources, models, bench-models.
-# Usage: ./setup.sh check | sources | build | models | bench-models | desktop | bob | uinput (needs sudo) | all
+# Usage: ./setup.sh check | sources | build | models | bench-models | desktop | bob | voice | uinput (needs sudo) | all
 # Optional: ./setup.sh bob adds Super+Alt+B (ask IBM Bob), the only feature that goes online.
+# Optional: ./setup.sh voice gives Bob a natural voice (Kokoro, offline, about 340 MB, runs on the CPU).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 CUDA_ARCH=89   # RTX 1000 Ada
@@ -62,6 +63,14 @@ fetch() { # url name
 models() {  # the two models Vaani uses, about 3.1 GB
   fetch $HF/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin ggml-large-v3-turbo-q5_0.bin
   fetch $HF/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+}
+
+voice() {  # optional: Bob's natural voice. Installs the Python packages for your user, then downloads the model
+  /usr/bin/python3 -m pip install --user kokoro-onnx onnxruntime soundfile
+  local k=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
+  fetch $k/kokoro-v1.0.onnx kokoro-v1.0.onnx
+  fetch $k/voices-v1.0.bin voices-v1.0.bin
+  echo "Bob's voice installed. Restart Vaani: systemctl --user restart vaani"
 }
 
 bench-models() {  # optional: the other candidates compared by scripts/bench_*.py, about 6.7 GB
@@ -167,6 +176,7 @@ uinput() {
 case "${1:-all}" in
   check|sources|build|models|bench-models|desktop|uinput) "$1" ;;
   bob) bob_setup ;;
+  voice) voice ;;
   all) check; build; models; desktop ;;
-  *) echo "usage: $0 check|sources|build|models|bench-models|desktop|bob|uinput|all"; exit 1 ;;
+  *) echo "usage: $0 check|sources|build|models|bench-models|desktop|bob|voice|uinput|all"; exit 1 ;;
 esac

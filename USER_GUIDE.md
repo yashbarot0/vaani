@@ -39,8 +39,8 @@ Bob's face sits in the bottom-right corner of the screen. Clicking it, or pressi
 
 1. Click Bob, or press **Super+Alt+B**. A blue ring around Bob pulses with your voice, and a card above him shows your words as you speak.
 2. Ask your question.
-3. Click Bob, or press **Super+Alt+B**, again. A spinner circles Bob while he thinks, usually about 4 seconds.
-4. Bob reads the answer aloud and his mouth moves as he speaks. The card shows the answer.
+3. Click Bob, or press **Super+Alt+B**, again. A spinner circles Bob while he thinks, usually about 2 seconds.
+4. The answer appears in the card word by word as Bob writes it, and Bob starts reading it aloud about a second later, usually around 3 seconds after you stopped talking. His mouth moves as he speaks. The voice is Kokoro, installed with `./setup.sh voice`; without it Bob uses a robotic fallback voice.
 
 In the card and on Bob:
 

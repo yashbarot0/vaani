@@ -62,7 +62,7 @@ The setup also does two things to your desktop:
 - It adds the shortcuts Super+Alt+D and Super+Alt+E. If you already use them, change Vaani's in Settings, Keyboard, Custom Shortcuts.
 - If you use the Clipboard Indicator extension, it sets it to save only favourites to disk. Dictated text passes through the clipboard.
 
-The individual steps are `check`, `sources`, `build`, `models`, `desktop` and `uinput`. `./setup.sh bench-models` downloads the other candidate models, about 6.7 GB, used only by the benchmark scripts.
+The individual steps are `check`, `sources`, `build`, `models`, `desktop`, `bob`, `voice` and `uinput`. `./setup.sh bench-models` downloads the other candidate models, about 6.7 GB, used only by the benchmark scripts.
 
 ## Configure
 
@@ -87,13 +87,14 @@ history = false
 Click Bob's face in the bottom-right corner of the screen, or press **Super+Alt+B**. Ask a question out loud, then click or press again. Whisper transcribes it locally, the question goes to IBM Bob, and Bob reads the answer aloud with an animated face while the answer shows in a card above him. Click the card to copy the answer. Right-click Bob or the card to cancel, stop him talking, or close the card.
 
 - **One conversation a day.** Every question that day continues the same Bob task, so follow-ups work and Bob's task list gets one "Vaani voice session" entry per day instead of one per question. It is kept across restarts. **New Bob conversation** in the tray menu starts a fresh one.
-- **No spending limits.** Vaani passes no cost or turn limit to Bob. A question costs about $0.02 to $0.03 and takes about 4 seconds, and a long conversation costs a little more per question as it grows.
-- **Voice:** espeak-ng, a robotic voice. Turn speech off with **Speak Bob's answers** in the tray menu, or `bob_speak = false`.
+- **No spending limits.** Vaani passes no cost or turn limit to Bob. A question costs about $0.02 to $0.03, and a long conversation costs a little more per question as it grows.
+- **Voice:** a natural-sounding offline voice, [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (voice `af_heart`), running on the CPU so the GPU stays free for Whisper and Qwen. Bob speaks a sentence at a time and starts after about a second. Install it with `./setup.sh voice` (about 340 MB). Without it, or with `bob_tts = "espeak"`, Bob uses the robotic espeak-ng. Turn speech off with **Speak Bob's answers** in the tray menu, or `bob_speak = false`.
 
 How it stays safe:
 
 - `vaani.service` keeps its network sandbox. A second small service, `vaani-bob.service`, is the only part of Vaani with network access. The two talk over a private local socket, `$XDG_RUNTIME_DIR/vaani-bob.sock`, readable only by you.
-- Bob runs with `--mode ask`, which is read-only, from an empty folder, `~/.local/share/vaani/bob`. A misheard question can only produce a wrong answer, never a change to your machine.
+- The helper keeps one Bob Shell running in server mode (`bob acp`, about 270 MB of RAM, no CPU while idle), so a question skips Bob's startup. Every question runs in read-only ask mode: the helper sets it before asking, cancels the answer if Bob ever leaves it, and refuses anything Bob asks to do on the machine. Bob works from an empty folder, `~/.local/share/vaani/bob`. A misheard question can only produce a wrong answer, never a change to your machine.
+- **Speed:** the answer streams into the card as Bob writes it, and Bob starts speaking at the first short phrase, typically about 3 seconds after you stop talking.
 - The API key stays in `~/.config/vaani/bob.env`, readable only by you. It is never logged, and questions and answers are not logged either.
 
 Set it up:
@@ -108,7 +109,7 @@ Set it up:
 3. Run `./setup.sh bob`. It writes and starts `vaani-bob.service` and adds the Super+Alt+B shortcut.
 4. Optional: save a picture of Bob's head as `~/.config/vaani/bob.png` to use it for the button and card. IBM's mascot is not included in this repository. Without the file, a simple drawn robot head is used.
 
-Settings, in `~/.config/vaani/config.toml`: `bob_timeout` (seconds, default 120), `bob_speak` (default true), `bob_voice` (espeak-ng voice, default "en-us"), `bob_speech_rate` (words per minute, default 165), `show_bob_button` (default true). Restart both services after changing them.
+Settings, in `~/.config/vaani/config.toml`: `bob_timeout` (seconds, default 120), `bob_speak` (default true), `bob_tts` ("kokoro" or "espeak", default "kokoro"), `bob_kokoro_voice` (default "af_heart"; others include af_bella, af_nicole, am_michael, am_adam, bf_emma, bm_george), `bob_kokoro_speed` (default 1.0), `bob_tts_threads` (CPU threads, default 6), `bob_voice` and `bob_speech_rate` (espeak-ng fallback only), `show_bob_button` (default true). Restart both services after changing them.
 
 ## Commands
 

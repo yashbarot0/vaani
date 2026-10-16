@@ -86,6 +86,21 @@ def chat(server, messages, max_tokens, timeout):
     return r.json()["choices"][0]["message"]["content"]
 
 
+def bob_ask(question, on_delta, timeout):
+    """Ask Bob through the helper. on_delta(text) runs as Bob writes; returns the helper's final reply."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)  # per read: Bob may think for a while before the first words
+        s.connect(str(config.BOB_SOCKET))
+        s.sendall((json.dumps({"op": "ask", "text": question}) + "\n").encode())
+        for line in s.makefile():
+            msg = json.loads(line)
+            if "delta" in msg:
+                on_delta(msg["delta"])
+            else:
+                return msg
+    raise ConnectionError("Bob helper closed the connection")
+
+
 def bob_request(req, timeout):
     """One JSON request to the Bob helper over its local socket. Raises OSError if it isn't running."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:

@@ -37,8 +37,13 @@ DEFAULTS = {
     # Super+Alt+B or the Bob button asks IBM Bob. Only the question text leaves the laptop, via vaani-bob.service.
     "bob_timeout": 120,          # seconds before the helper kills a Bob call
     "bob_speak": True,           # read Bob's answer aloud
-    "bob_voice": "en-us",        # espeak-ng voice
-    "bob_speech_rate": 165,      # words per minute
+    "bob_tts": "kokoro",         # "kokoro" = natural offline voice (./setup.sh voice); "espeak" = robotic fallback
+    "bob_kokoro_model": "kokoro-v1.0.onnx",
+    "bob_kokoro_voice": "af_heart",  # e.g. af_bella, af_nicole, am_michael, am_adam
+    "bob_kokoro_speed": 1.0,
+    "bob_tts_threads": 6,        # CPU threads for the voice; it never uses the GPU
+    "bob_voice": "en-us",        # espeak-ng voice, used when Kokoro is off or missing
+    "bob_speech_rate": 165,      # espeak-ng words per minute
     "show_bob_button": True,     # Bob's face at the bottom-right corner; click to ask
 }
 
